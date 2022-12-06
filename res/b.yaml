@@ -1,0 +1,77 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: nginx-b
+  labels:
+    app.kubernetes.io/name: nginx-b
+spec:
+  ports:
+    - name: http
+      protocol: TCP
+      port: 50002
+      targetPort: 80
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: nginx-b
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: nginx-b
+  labels:
+    app: istio-experiments
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nginx-b
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nginx-b
+        app: istio-experiments
+        version: 1.0.0
+    spec:
+      containers:
+        - name: main
+          ports:
+            - containerPort: 80
+              name: http
+          image: nginxdemos/hello
+          livenessProbe:
+            httpGet:
+              port: http
+              path: /
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: vb
+spec:
+  hosts:
+    - '*'
+  gateways:
+    - istio-ingress/generic-gateway
+  http:
+    - match:
+        - uri:
+            prefix: /bb
+      route:
+        - destination:
+            port:
+              number: 50002
+            host: nginx-b
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: ServiceEntry
+metadata:
+  name: nginx-b-mesh
+spec:
+  hosts:
+    - nginx-b
+  location: MESH_INTERNAL
+  ports:
+    - number: 50002
+      name: http
+      protocol: HTTP
+  resolution: DNS

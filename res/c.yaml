@@ -1,0 +1,133 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: gobrowserd
+  labels:
+    app.kubernetes.io/name: gobrowserd
+spec:
+  ports:
+    - name: grpc
+      protocol: TCP
+      port: 13004
+      targetPort: 13004
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: gobrowserd
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: gobrowserd
+  labels:
+    app: istio-experiments-secondary
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gobrowserd
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gobrowserd
+        app: istio-experiments-secondary
+        version: 1.0.0
+    spec:
+      containers:
+        - name: main
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 80
+              name: http
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.podIP
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+          image: docker.io/library/pook:1
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+      volumes:
+        - name: config
+          configMap:
+            name: gobrowserd
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gobrowserd
+  labels:
+    app.kubernetes.io/name: gobrowserd
+    app.kubernetes.io/instance: gobrowserd
+data:
+  config.conf: |
+    {
+    	"daemon_config": {
+    		"listen": [
+    			{ "proto": "gobrowserd-gpb",         "address": "0.0.0.0:13000", "pinba_enabled": true },
+    			{ "proto": "gobrowserd-gpb/json",    "address": "0.0.0.0:13001" },
+    			{ "proto": "service-stats-gpb",      "address": "0.0.0.0:13002" },
+    			{ "proto": "service-stats-gpb/json", "address": "0.0.0.0:13003" },
+    			{ "proto": "gobrowserd-grpc",        "address": "0.0.0.0:13004" },
+    		],
+    		"http_pprof_addr": "0.0.0.0:13005",
+    		"pid_file": "/tmp/gobrowserd.pid",
+    		"log_file": "-",
+    		"log_level": "NOTICE",
+    		"service_name": "gobrowserd",
+    		"service_instance_name": "gobrowserd",
+    		"syslog_identity": "${service_name}-${service_instance_name}-${version}",
+    		"syslog_ip": "127.0.0.1",
+    		"syslog_port": 10514,
+    		"pinba_address": "pinbagobrowserd:30002",
+    		"tracing": {
+    			"enabled": true,
+    			"agent": {
+    				"host": "jaeger.d3",
+    				"port": "6831",
+    			},
+    			"sampler": {
+    				"type": "ALWAYS_ON",
+    				"ratio": 1
+    			},
+    			"platform": "jons-dev-box"
+    		}
+    	},
+    
+    	"browscap_ini_path": "/browscap.ini"
+    }
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: vgbd
+spec:
+  hosts:
+    - '*'
+  gateways:
+    - istio-ingress/generic-gateway
+  http:
+    - match:
+        - uri:
+            prefix: /com.bumble.contract.service.gobrowserd
+      route:
+        - destination:
+            port:
+              number: 13004
+            host: gobrowserd
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: gobrowserd
+spec:
+  host: gobrowserd
+  trafficPolicy:
+    loadBalancer:
+      simple: LEAST_REQUEST

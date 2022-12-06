@@ -1,0 +1,77 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: nginx-a
+  labels:
+    app.kubernetes.io/name: nginx-a
+spec:
+  ports:
+    - name: http
+      protocol: TCP
+      port: 50001
+      targetPort: 80
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: nginx-a
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: nginx-a
+  labels:
+    app: istio-experiments
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nginx-a
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nginx-a
+        app: istio-experiments
+        version: 1.0.0
+    spec:
+      containers:
+        - name: main
+          ports:
+            - containerPort: 80
+              name: http
+          image: nginxdemos/hello
+          livenessProbe:
+            httpGet:
+              port: http
+              path: /
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: va
+spec:
+  hosts:
+    - '*'
+  gateways:
+    - istio-ingress/generic-gateway
+  http:
+    - match:
+        - uri:
+            prefix: /aa
+      route:
+        - destination:
+            port:
+              number: 50001
+            host: nginx-a
+---
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: nginx-a-mesh
+spec:
+  hosts:
+    - nginx-a
+  location: MESH_INTERNAL
+  ports:
+    - number: 50001
+      name: http
+      protocol: HTTP
+  resolution: DNS
